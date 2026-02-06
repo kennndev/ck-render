@@ -116,6 +116,7 @@ export class RenderClient {
     plan?: string
     region?: string
     startCommand?: string
+    registryCredentialId?: string
   }): Promise<RenderService> {
     console.log(`[Render] Creating service: ${config.name}`)
 
@@ -126,21 +127,26 @@ export class RenderClient {
       type: 'web_service',
       name: config.name,
       ownerId, // ✅ Use actual owner ID
+      image: {
+        ownerId,
+        imagePath: config.image,
+        ...(config.registryCredentialId && {
+          registryCredentialId: config.registryCredentialId,
+        }),
+      },
+      envVars: Object.entries(config.env).map(([key, value]) => ({
+        key,
+        value,
+      })),
       serviceDetails: {
-        env: 'docker',
+        runtime: 'image',
         region: config.region || 'oregon', // Oregon (US West)
         plan: config.plan || 'starter', // Free tier
-        dockerDetails: {
-          dockerCommand: config.startCommand,
-          dockerfilePath: '', // Not building, using pre-built image
-          image: {
-            imagePath: config.image,
+        ...(config.startCommand && {
+          envSpecificDetails: {
+            dockerCommand: config.startCommand,
           },
-        },
-        envVars: Object.entries(config.env).map(([key, value]) => ({
-          key,
-          value,
-        })),
+        }),
       },
     })
 

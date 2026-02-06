@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --version:*)",
+      "Bash(npm --version)",
+      "Bash(test -f .env)",
+      "Bash(npm install)",
+      "Bash(docker --version:*)",
+      "Bash(node -e:*)",
+      "Bash(npm run:*)",
+      "Bash(docker network create:*)",
+      "Bash(npx prisma studio)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(curl:*)",
+      "Bash(stripe trigger:*)",
+      "Bash(taskkill:*)",
+      "Bash(npx tsx test-webhook.ts)",
+      "Bash(powershell:*)",
+      "Bash(tasklist:*)",
+      "Bash(npx tsx:*)",
+      "Bash(timeout /t 1)",
+      "Bash(where:*)",
+      "Bash(\"C:\\\\Program Files\\\\Docker\\\\Docker\\\\resources\\\\bin\\\\docker.exe\" ps)",
+      "Bash(npm install:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.railway.com)",
+      "Bash(npx tsc:*)",
+      "Bash(npx next lint:*)",
+      "WebFetch(domain:docs.openclaw.ai)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:fly.io)",
+      "Bash(find:*)",
+      "Bash(for file in app/api/instance/stop/route.ts app/api/instance/start/route.ts app/api/instance/restart/route.ts app/api/instance/logs/route.ts app/api/instance/status/route.ts app/api/instance/config/route.ts app/api/instance/channels/route.ts)",
+      "Bash(do sed -i \"s|from ''@/lib/railway/deploy''|from ''@/lib/fly/deploy''|g\" \"$file\")",
+      "Bash(done)",
+      "WebFetch(domain:api-docs.render.com)",
+      "WebFetch(domain:render.com)"
+    ]
+  }
+}

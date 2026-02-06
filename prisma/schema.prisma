@@ -1,0 +1,284 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String?
+  password      String
+  pendingConfig Json?          // Store config before payment
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  subscription  Subscription?
+  instance      Instance?
+  apiKeys       ApiKey[]
+
+  @@map("users")
+}
+
+model Subscription {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stripeCustomerId      String?  @unique
+  stripeSubscriptionId  String?  @unique
+  stripePriceId         String?
+  stripeCurrentPeriodEnd DateTime?
+
+  plan                  Plan
+  status                SubscriptionStatus
+
+  // Usage tracking for free tier
+  messagesUsed          Int      @default(0)
+  messagesLimit         Int      @default(100)
+  currentPeriodStart    DateTime @default(now())
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("subscriptions")
+}
+
+enum Plan {
+  FREE
+  MONTHLY
+  THREE_MONTH
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  INCOMPLETE
+  TRIALING
+  UNPAID
+}
+
+model Instance {
+  id            String          @id @default(cuid())
+  userId        String          @unique
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  containerId   String?         @unique
+  containerName String          @unique
+  port          Int             @unique
+  status        InstanceStatus
+
+  accessUrl     String?
+  serviceUrl    String?         // Internal Railway URL for API calls
+  gatewayToken  String?         // Token for authenticating to the OpenClaw gateway
+  qrCode        String?
+
+  config        Configuration?
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  lastHealthCheck DateTime?
+
+  // Usage tracking
+  usageLogs     UsageLog[]
+
+  @@map("instances")
+}
+
+enum InstanceStatus {
+  DEPLOYING
+  RUNNING
+  STOPPED
+  ERROR
+  RESTARTING
+}
+
+model Configuration {
+  id          String   @id @default(cuid())
+  instanceId  String   @unique
+  instance    Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  // AI Provider
+  provider    AIProvider
+  apiKey      String     @db.Text
+  model       String
+
+  // Failover model
+  failoverModel String?
+
+  // Channels
+  channels    Channel[]
+
+  // Skills & Extensions
+  webSearchEnabled    Boolean @default(false)
+  braveApiKey         String?
+  browserEnabled      Boolean @default(false)
+  ttsEnabled          Boolean @default(false)
+  elevenlabsApiKey    String?
+  canvasEnabled       Boolean @default(false)
+  cronEnabled         Boolean @default(false)
+  memoryEnabled       Boolean @default(false)
+
+  // Advanced Settings
+  workspace           String?
+  agentName           String?
+  systemPrompt        String? @db.Text
+  thinkingMode        String  @default("high")
+  sessionMode         String  @default("per-sender")
+  dmPolicy            String  @default("pairing")
+
+  // Full OpenClaw config JSON
+  fullConfig          Json
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("configurations")
+}
+
+enum AIProvider {
+  ANTHROPIC
+  OPENAI
+  OPENROUTER
+  BEDROCK
+  VERCEL
+}
+
+model Channel {
+  id              String        @id @default(cuid())
+  configId        String
+  configuration   Configuration @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  type            ChannelType
+  enabled         Boolean       @default(true)
+
+  // Channel-specific config (JSON)
+  config          Json
+
+  // Access info
+  botUsername     String?
+  phoneNumber     String?
+  inviteLink      String?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("channels")
+}
+
+enum ChannelType {
+  WHATSAPP
+  TELEGRAM
+  DISCORD
+  SLACK
+  SIGNAL
+  GOOGLE_CHAT
+  IMESSAGE
+  MATRIX
+  MSTEAMS
+  LINE
+  FEISHU
+  MATTERMOST
+  WEBCHAT
+  NOSTR
+  TWITCH
+  ZALO
+  BLUEBUBBLES
+  NEXTCLOUD_TALK
+}
+
+model DeploymentLog {
+  id          String   @id @default(cuid())
+  instanceId  String
+  action      String
+  status      String
+  message     String?  @db.Text
+  error       String?  @db.Text
+
+  createdAt   DateTime @default(now())
+
+  @@map("deployment_logs")
+}
+
+// Usage tracking for analytics
+model UsageLog {
+  id          String   @id @default(cuid())
+  instanceId  String
+  instance    Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  channel     String
+  direction   MessageDirection  // INBOUND or OUTBOUND
+  tokensUsed  Int               @default(0)
+  model       String?
+  responseMs  Int?              // Response time in ms
+
+  createdAt   DateTime @default(now())
+
+  @@index([instanceId, createdAt])
+  @@index([instanceId, channel])
+  @@map("usage_logs")
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+// Organizations for team support (Phase 8.3)
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  ownerId     String
+
+  members     TeamMember[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("organizations")
+}
+
+model TeamMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  userId         String
+  email          String
+  role           TeamRole     @default(VIEWER)
+
+  invitedAt      DateTime     @default(now())
+  acceptedAt     DateTime?
+
+  @@unique([organizationId, userId])
+  @@map("team_members")
+}
+
+enum TeamRole {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+// API keys for developer access (Phase 8.4)
+model ApiKey {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name        String
+  key         String   @unique
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("api_keys")
+}

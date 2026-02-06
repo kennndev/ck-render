@@ -1,253 +1,272 @@
-const RAILWAY_API_URL = 'https://backboard.railway.com/graphql/v2'
+/**
+ * Render.com API Client
+ *
+ * Docs: https://render.com/docs/api
+ * API Reference: https://api-docs.render.com
+ */
 
-interface GraphQLResponse<T = any> {
-  data?: T
-  errors?: { message: string }[]
-}
+const RENDER_API_URL = 'https://api.render.com/v1'
 
-export interface Deployment {
+export interface RenderService {
   id: string
+  name: string
+  type: string
+  ownerId: string
+  serviceDetails: {
+    url?: string
+    env: string
+    region: string
+    plan: string
+  }
+  createdAt: string
+  updatedAt: string
+  suspended: string
+  suspenders: string[]
+}
+
+export interface RenderDeploy {
+  id: string
+  serviceId: string
   status: string
-  url?: string
-  createdAt?: string
+  createdAt: string
+  updatedAt: string
+  finishedAt?: string
 }
 
-export interface LogEntry {
-  timestamp: string
-  message: string
-  severity: string
-}
-
-export class RailwayClient {
-  private token: string
-  private projectId: string
-  private environmentId: string
+export class RenderClient {
+  private apiKey: string
+  private ownerIdCache: string | null = null
 
   constructor() {
-    const token = process.env.RAILWAY_TOKEN
-    const projectId = process.env.RAILWAY_PROJECT_ID
-    const environmentId = process.env.RAILWAY_ENVIRONMENT_ID
+    const apiKey = process.env.RENDER_API_KEY
 
-    if (!token || !projectId || !environmentId) {
+    if (!apiKey) {
       throw new Error(
-        'Missing Railway env vars: RAILWAY_TOKEN, RAILWAY_PROJECT_ID, RAILWAY_ENVIRONMENT_ID. ' +
-        'PROJECT_ID and ENVIRONMENT_ID are auto-provided when running on Railway.'
+        'Missing RENDER_API_KEY environment variable.\n' +
+        'Get one at: https://dashboard.render.com/u/<your-username>/settings#api-keys'
       )
     }
 
-    this.token = token
-    this.projectId = projectId
-    this.environmentId = environmentId
-
-    console.log(`[Railway] token=${token.slice(0, 8)}…${token.slice(-4)} projectId=${projectId} envId=${environmentId}`)
+    this.apiKey = apiKey
+    console.log(`[Render] Initialized with API key: ${apiKey.slice(0, 10)}...`)
   }
 
-  private async graphql<T>(query: string, variables?: Record<string, any>): Promise<T> {
-    const res = await fetch(RAILWAY_API_URL, {
-      method: 'POST',
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: any
+  ): Promise<T> {
+    const url = `${RENDER_API_URL}${path}`
+
+    const res = await fetch(url, {
+      method,
       headers: {
-        Authorization: `Bearer ${this.token}`,
+        'Authorization': `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ query, variables }),
+      ...(body && { body: JSON.stringify(body) }),
     })
 
     if (!res.ok) {
-      throw new Error(`Railway API HTTP ${res.status}: ${await res.text()}`)
+      const errorText = await res.text()
+      console.error(`[Render] API Error ${res.status}:`, errorText)
+      throw new Error(`Render API error ${res.status}: ${errorText}`)
     }
 
-    const json: GraphQLResponse<T> = await res.json()
-
-    if (json.errors?.length) {
-      console.error('[Railway] GraphQL errors:', JSON.stringify(json.errors))
-      throw new Error(`Railway API: ${json.errors.map(e => e.message).join(', ')}`)
+    // Some endpoints return empty responses
+    const text = await res.text()
+    if (!text) {
+      return {} as T
     }
 
-    if (!json.data) {
-      throw new Error('Railway API returned empty response')
-    }
-
-    return json.data
+    return JSON.parse(text) as T
   }
 
-  /** Verify token has access to the project (simple read test). */
-  async verifyAccess(): Promise<void> {
-    console.log('[Railway] Verifying token access to project...')
-    const { project } = await this.graphql<{ project: { name: string } }>(`
-      query project($id: String!) {
-        project(id: $id) {
-          name
-        }
-      }
-    `, { id: this.projectId })
-    console.log(`[Railway] ✅ Token has access to project: ${project.name}`)
+  /** Get owner ID (cached after first call) */
+  async getOwnerId(): Promise<string> {
+    if (this.ownerIdCache) {
+      return this.ownerIdCache
+    }
+
+    console.log('[Render] Fetching owner ID...')
+    // Render API returns an array of objects with nested owner data
+    const response = await this.request<Array<{
+      cursor: string
+      owner: { id: string; name: string; email: string; type: string }
+    }>>('GET', '/owners')
+
+    console.log('[Render] Owners response:', JSON.stringify(response, null, 2))
+
+    if (!response || response.length === 0) {
+      throw new Error('No owner found. Make sure your API key is valid.')
+    }
+
+    // Use the first owner (usually the personal account or team)
+    this.ownerIdCache = response[0].owner.id
+    console.log(`[Render] ✅ Owner ID: ${this.ownerIdCache} (${response[0].owner.name})`)
+
+    return this.ownerIdCache
   }
 
-  /** Set environment variables on a service. */
-  async setVariables(serviceId: string, env: Record<string, string>): Promise<void> {
-    console.log(`[Railway] Setting ${Object.keys(env).length} variables on service ${serviceId}`)
-    await this.graphql(`
-      mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) {
-        variableCollectionUpsert(input: $input)
-      }
-    `, {
-      input: {
-        projectId: this.projectId,
-        environmentId: this.environmentId,
-        serviceId,
-        variables: env,
+  /** Create a new service from Docker image */
+  async createService(config: {
+    name: string
+    image: string
+    env: Record<string, string>
+    plan?: string
+    region?: string
+    startCommand?: string
+    registryCredentialId?: string
+  }): Promise<RenderService> {
+    console.log(`[Render] Creating service: ${config.name}`)
+
+    // Get the owner ID first
+    const ownerId = await this.getOwnerId()
+
+    const service = await this.request<RenderService>('POST', '/services', {
+      type: 'web_service',
+      name: config.name,
+      ownerId, // ✅ Use actual owner ID
+      image: {
+        ownerId,
+        imagePath: config.image,
+        ...(config.registryCredentialId && {
+          registryCredentialId: config.registryCredentialId,
+        }),
+      },
+      envVars: Object.entries(config.env).map(([key, value]) => ({
+        key,
+        value,
+      })),
+      serviceDetails: {
+        runtime: 'image',
+        region: config.region || 'oregon', // Oregon (US West)
+        plan: config.plan || 'starter', // Free tier
+        ...(config.startCommand && {
+          envSpecificDetails: {
+            dockerCommand: config.startCommand,
+          },
+        }),
       },
     })
+
+    console.log(`[Render] ✅ Service created: ${service.id}`)
+    return service
   }
 
-  /** Create a service from a Docker image. Railway auto-deploys on creation. */
-  async createService(name: string, image: string, env: Record<string, string>): Promise<{ id: string }> {
-    // First verify we have access
-    await this.verifyAccess()
+  /** Get service details */
+  async getService(serviceId: string): Promise<RenderService> {
+    return this.request<RenderService>('GET', `/services/${serviceId}`)
+  }
 
-    console.log('[Railway] Creating service with input:', JSON.stringify({
-      projectId: this.projectId,
-      name,
-      source: { image },
+  /** List all services */
+  async listServices(): Promise<RenderService[]> {
+    const response = await this.request<{ service: RenderService[] }>('GET', '/services')
+    return response.service || []
+  }
+
+  /** Delete a service */
+  async deleteService(serviceId: string): Promise<void> {
+    console.log(`[Render] Deleting service: ${serviceId}`)
+    await this.request('DELETE', `/services/${serviceId}`)
+    console.log(`[Render] ✅ Service deleted`)
+  }
+
+  /** Suspend (stop) a service */
+  async suspendService(serviceId: string): Promise<void> {
+    console.log(`[Render] Suspending service: ${serviceId}`)
+    await this.request('POST', `/services/${serviceId}/suspend`)
+    console.log(`[Render] ✅ Service suspended`)
+  }
+
+  /** Resume (start) a service */
+  async resumeService(serviceId: string): Promise<void> {
+    console.log(`[Render] Resuming service: ${serviceId}`)
+    await this.request('POST', `/services/${serviceId}/resume`)
+    console.log(`[Render] ✅ Service resumed`)
+  }
+
+  /** Restart a service */
+  async restartService(serviceId: string): Promise<void> {
+    console.log(`[Render] Restarting service: ${serviceId}`)
+    await this.request('POST', `/services/${serviceId}/restart`)
+    console.log(`[Render] ✅ Service restarted`)
+  }
+
+  /** Update environment variables */
+  async updateEnvVars(
+    serviceId: string,
+    env: Record<string, string>
+  ): Promise<void> {
+    console.log(`[Render] Updating ${Object.keys(env).length} env vars for ${serviceId}`)
+
+    const envVars = Object.entries(env).map(([key, value]) => ({
+      key,
+      value,
     }))
 
-    // Create service without variables first
-    const { serviceCreate } = await this.graphql<{ serviceCreate: { id: string } }>(`
-      mutation serviceCreate($input: ServiceCreateInput!) {
-        serviceCreate(input: $input) {
-          id
-        }
-      }
-    `, {
-      input: {
-        projectId: this.projectId,
-        name,
-        source: { image },
-      },
-    })
-
-    console.log(`[Railway] Service created: ${serviceCreate.id}`)
-
-    // Set variables separately
-    await this.setVariables(serviceCreate.id, env)
-
-    return serviceCreate
+    await this.request('PUT', `/services/${serviceId}/env-vars`, envVars)
+    console.log(`[Render] ✅ Environment variables updated`)
   }
 
-  /** Update build/deploy settings for a service instance (e.g. startCommand). */
-  async updateServiceInstance(serviceId: string, input: { startCommand?: string }): Promise<void> {
-    await this.graphql(`
-      mutation serviceInstanceUpdate($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) {
-        serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
-      }
-    `, {
-      serviceId,
-      environmentId: this.environmentId,
-      input,
-    })
+  /** Trigger a new deployment */
+  async deploy(serviceId: string): Promise<RenderDeploy> {
+    console.log(`[Render] Triggering deployment for: ${serviceId}`)
+
+    const deploy = await this.request<RenderDeploy>(
+      'POST',
+      `/services/${serviceId}/deploys`
+    )
+
+    console.log(`[Render] ✅ Deployment triggered: ${deploy.id}`)
+    return deploy
   }
 
-  /** Trigger a fresh deployment. */
-  async redeployService(serviceId: string): Promise<void> {
-    await this.graphql(`
-      mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) {
-        serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId)
-      }
-    `, {
-      serviceId,
-      environmentId: this.environmentId,
-    })
+  /** Get deployment details */
+  async getDeploy(serviceId: string, deployId: string): Promise<RenderDeploy> {
+    return this.request<RenderDeploy>('GET', `/services/${serviceId}/deploys/${deployId}`)
   }
 
-  /** Delete a service and everything in it. */
-  async deleteService(serviceId: string): Promise<void> {
-    await this.graphql(`
-      mutation serviceDelete($id: String!) {
-        serviceDelete(id: $id)
+  /** Wait for deployment to complete */
+  async waitForDeploy(
+    serviceId: string,
+    deployId: string,
+    timeoutMs: number = 300000 // 5 minutes
+  ): Promise<void> {
+    const startTime = Date.now()
+    const pollInterval = 5000 // 5 seconds
+
+    while (Date.now() - startTime < timeoutMs) {
+      const deploy = await this.getDeploy(serviceId, deployId)
+
+      console.log(`[Render] Deployment ${deployId} status: ${deploy.status}`)
+
+      if (deploy.status === 'live') {
+        console.log(`[Render] ✅ Deployment succeeded`)
+        return
       }
-    `, { id: serviceId })
+
+      if (deploy.status === 'build_failed' || deploy.status === 'deactivated') {
+        throw new Error(`Deployment failed with status: ${deploy.status}`)
+      }
+
+      await sleep(pollInterval)
+    }
+
+    throw new Error('Deployment timeout (5 minutes)')
   }
 
-  /** Find a service by name in the project. Returns service ID if found. */
-  async findServiceByName(name: string): Promise<string | null> {
-    const { project } = await this.graphql<{
-      project: { services: { edges: { node: { id: string; name: string } }[] } }
-    }>(`
-      query project($id: String!) {
-        project(id: $id) {
-          services {
-            edges {
-              node {
-                id
-                name
-              }
-            }
-          }
-        }
-      }
-    `, { id: this.projectId })
-
-    const match = project.services.edges.find(e => e.node.name === name)
-    return match?.node.id ?? null
+  /** Get service URL */
+  getServiceUrl(service: RenderService): string {
+    return service.serviceDetails.url || `https://${service.name}.onrender.com`
   }
 
-  /** Return the most recent deployment for a service. */
-  async getLatestDeployment(serviceId: string): Promise<Deployment | null> {
-    const { deployments } = await this.graphql<{
-      deployments: { edges: { node: Deployment }[] }
-    }>(`
-      query deployments($input: DeploymentListInput!) {
-        deployments(input: $input) {
-          edges {
-            node {
-              id
-              status
-              url
-              createdAt
-            }
-          }
-        }
-      }
-    `, {
-      input: {
-        serviceId,
-        first: 1,
-      },
-    })
-
-    return deployments.edges[0]?.node ?? null
+  /** Get shell URL for service (opens in browser) */
+  getShellUrl(serviceId: string): string {
+    return `https://dashboard.render.com/web/${serviceId}/shell`
   }
+}
 
-  /** Fetch log entries for a deployment. */
-  async getLogs(deploymentId: string, limit = 100): Promise<LogEntry[]> {
-    const { deploymentLogs } = await this.graphql<{ deploymentLogs: LogEntry[] }>(`
-      query deploymentLogs($deploymentId: String!, $limit: Int) {
-        deploymentLogs(deploymentId: $deploymentId, limit: $limit) {
-          timestamp
-          message
-          severity
-        }
-      }
-    `, { deploymentId, limit })
-
-    return deploymentLogs
-  }
-
-  /** Remove the active deployment — pauses the service without deleting it. */
-  async removeDeployment(deploymentId: string): Promise<void> {
-    await this.graphql(`
-      mutation deploymentRemove($deploymentId: String!) {
-        deploymentRemove(deploymentId: $deploymentId)
-      }
-    `, { deploymentId })
-  }
-
-  /** Restart a running deployment in-place. */
-  async restartDeployment(deploymentId: string): Promise<void> {
-    await this.graphql(`
-      mutation deploymentRestart($deploymentId: String!) {
-        deploymentRestart(deploymentId: $deploymentId)
-      }
-    `, { deploymentId })
-  }
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

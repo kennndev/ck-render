@@ -89,15 +89,18 @@ export class RenderClient {
     }
 
     console.log('[Render] Fetching owner ID...')
-    const response = await this.request<{ owner: Array<{ id: string; name: string; email: string }> }>('GET', '/owners')
+    // Render API returns an array directly, not wrapped in an object
+    const owners = await this.request<Array<{ id: string; name: string; email: string }>>('GET', '/owners')
 
-    if (!response.owner || response.owner.length === 0) {
+    console.log('[Render] Owners response:', JSON.stringify(owners, null, 2))
+
+    if (!owners || owners.length === 0) {
       throw new Error('No owner found. Make sure your API key is valid.')
     }
 
     // Use the first owner (usually the personal account)
-    this.ownerIdCache = response.owner[0].id
-    console.log(`[Render] ✅ Owner ID: ${this.ownerIdCache}`)
+    this.ownerIdCache = owners[0].id
+    console.log(`[Render] ✅ Owner ID: ${this.ownerIdCache} (${owners[0].name})`)
 
     return this.ownerIdCache
   }

@@ -36,7 +36,8 @@
       "Bash(done)",
       "WebFetch(domain:api-docs.render.com)",
       "WebFetch(domain:render.com)",
-      "Bash(openssl rand:*)"
+      "Bash(openssl rand:*)",
+      "Bash(dir:*)"
     ]
   }
 }

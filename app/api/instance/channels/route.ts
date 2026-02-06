@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { ChannelType } from '@prisma/client'
-import { syncConfigToRailway } from '@/lib/railway/sync-config'
+import { syncConfigToRender } from '@/lib/render/sync-config'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,8 +28,8 @@ async function getUserWithConfig(email: string) {
  * Errors are logged but don't fail the API response.
  */
 function triggerSync(instanceId: string) {
-  syncConfigToRailway(instanceId).catch(err => {
-    console.error('[Channels] Failed to sync config to Railway:', err)
+  syncConfigToRender(instanceId).catch(err => {
+    console.error('[Channels] Failed to sync config to Render:', err)
   })
 }
 

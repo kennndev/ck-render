@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { syncConfigToRailway } from '@/lib/railway/sync-config'
+import { syncConfigToRender } from '@/lib/render/sync-config'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -108,8 +108,8 @@ export async function PATCH(req: Request) {
 
     // Push updated config to Railway and redeploy
     if (user.instance.containerId) {
-      syncConfigToRailway(user.instance.id).catch(err => {
-        console.error('Failed to push config to Railway:', err)
+      syncConfigToRender(user.instance.id).catch(err => {
+        console.error('Failed to push config to Render:', err)
       })
     }
 

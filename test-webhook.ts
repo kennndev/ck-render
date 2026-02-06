@@ -4,7 +4,7 @@
  */
 
 import { prisma } from './lib/prisma'
-import { deployInstance } from './lib/railway/deploy'
+import { deployInstance } from './lib/render/deploy'
 import { encrypt } from './lib/utils/encryption'
 import { AIProvider, ChannelType, Prisma } from '@prisma/client'
 import { UserConfiguration } from './lib/openclaw/config-builder'

@@ -37,7 +37,12 @@
       "WebFetch(domain:api-docs.render.com)",
       "WebFetch(domain:render.com)",
       "Bash(openssl rand:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

@@ -123,7 +123,7 @@ export class RenderClient {
     // Get the owner ID first
     const ownerId = await this.getOwnerId()
 
-    const service = await this.request<RenderService>('POST', '/services', {
+    const response = await this.request<any>('POST', '/services', {
       type: 'web_service',
       name: config.name,
       ownerId, // ✅ Use actual owner ID
@@ -149,6 +149,17 @@ export class RenderClient {
         }),
       },
     })
+
+    console.log(`[Render] Create service response:`, JSON.stringify(response, null, 2))
+
+    // Render API might wrap the service in a 'service' property
+    const service: RenderService = response.service || response
+
+    if (!service.id) {
+      console.error('[Render] ERROR: Service ID is missing from response')
+      console.error('[Render] Full response:', JSON.stringify(response, null, 2))
+      throw new Error('Service creation returned invalid response: missing service ID')
+    }
 
     console.log(`[Render] ✅ Service created: ${service.id}`)
     return service

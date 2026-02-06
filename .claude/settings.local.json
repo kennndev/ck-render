@@ -35,7 +35,8 @@
       "Bash(do sed -i \"s|from ''@/lib/railway/deploy''|from ''@/lib/fly/deploy''|g\" \"$file\")",
       "Bash(done)",
       "WebFetch(domain:api-docs.render.com)",
-      "WebFetch(domain:render.com)"
+      "WebFetch(domain:render.com)",
+      "Bash(openssl rand:*)"
     ]
   }
 }

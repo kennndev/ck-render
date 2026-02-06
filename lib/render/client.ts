@@ -35,6 +35,7 @@ export interface RenderDeploy {
 
 export class RenderClient {
   private apiKey: string
+  private ownerIdCache: string | null = null
 
   constructor() {
     const apiKey = process.env.RENDER_API_KEY
@@ -81,6 +82,26 @@ export class RenderClient {
     return JSON.parse(text) as T
   }
 
+  /** Get owner ID (cached after first call) */
+  async getOwnerId(): Promise<string> {
+    if (this.ownerIdCache) {
+      return this.ownerIdCache
+    }
+
+    console.log('[Render] Fetching owner ID...')
+    const response = await this.request<{ owner: Array<{ id: string; name: string; email: string }> }>('GET', '/owners')
+
+    if (!response.owner || response.owner.length === 0) {
+      throw new Error('No owner found. Make sure your API key is valid.')
+    }
+
+    // Use the first owner (usually the personal account)
+    this.ownerIdCache = response.owner[0].id
+    console.log(`[Render] ✅ Owner ID: ${this.ownerIdCache}`)
+
+    return this.ownerIdCache
+  }
+
   /** Create a new service from Docker image */
   async createService(config: {
     name: string
@@ -92,10 +113,13 @@ export class RenderClient {
   }): Promise<RenderService> {
     console.log(`[Render] Creating service: ${config.name}`)
 
+    // Get the owner ID first
+    const ownerId = await this.getOwnerId()
+
     const service = await this.request<RenderService>('POST', '/services', {
       type: 'web_service',
       name: config.name,
-      ownerId: 'me', // Uses authenticated user/team
+      ownerId, // ✅ Use actual owner ID
       serviceDetails: {
         env: 'docker',
         region: config.region || 'oregon', // Oregon (US West)
